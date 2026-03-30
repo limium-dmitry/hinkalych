@@ -1,25 +1,89 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import {
-  LayoutDashboard, Store, Users, AlertTriangle, Upload, LogOut,
-  ChevronLeft, ChevronRight, Menu,
-  TrendingUp, ShoppingCart, CreditCard, Package, Utensils,
-  Calendar, Clock, RefreshCw, AlertCircle, CheckCircle2, Info,
-  Paperclip, Download, MapPin, BadgeAlert,
-} from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════
-//  API LAYER + CLIENT CACHE
+//  API LAYER + CLIENT CACHE + DEMO MODE
 // ═══════════════════════════════════════════════════════════
-const API_BASE = `http://${window.location.hostname}:8000`;
+const IS_DEMO = !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1");
+// REAL: const API_BASE = `http://${window.location.hostname}:8000`;
+const API_BASE = IS_DEMO ? "" : `http://${window.location.hostname}:8000`;
+
+// ── DEMO DATA ──
+const DEMO_DEPTS = [
+  "СХ Воронеж Никитинская","СХ Ростов-на-Дону Большая Садовая","СХ Ростов-на-Дону Пушкинская",
+  "СХ Воронеж ТРЦ Максимир","СХ Воронеж ТЦ Арена","СХ Воронеж Московский пр.",
+  "СХ Воронеж Пушкинская","СХ Воронеж 20-летия Октября","СХ Тула пр-т Красноармейский",
+  "СХ Тула Гостинный Двор","СХ Шахты Шевченко","СХ Новомосковск Комсомольская",
+  "СХ Елец Свердлова","СХ Ростов-на-Дону ТРЦ Галерея «Парк»",
+];
+const DOW = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+function _rng(seed,i){ const x=Math.sin(seed*9301+i*49297+233280)*49297; return x-Math.floor(x); }
+function _demoDaily(dept,df,dt){
+  const seed=dept.split("").reduce((a,c)=>a+c.charCodeAt(0),0);
+  const s=new Date(df), e=new Date(dt), days=[]; let i=0;
+  for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){
+    const ds=d.toISOString().slice(0,10), dow=DOW[d.getDay()], we=d.getDay()===0||d.getDay()===6;
+    const base=we?220000:160000, plan=Math.round(base*(0.9+_rng(seed,i)*0.2));
+    const rev=Math.round(plan*(0.85+_rng(seed,i+1)*0.35));
+    const orders=Math.round(rev/(800+_rng(seed,i+2)*600)), avg=orders>0?Math.round(rev/orders):0;
+    const fc=+(25+_rng(seed,i+3)*12).toFixed(1), lc=Math.round(rev*(0.18+_rng(seed,i+4)*0.1));
+    const lcP=rev>0?+((lc/rev)*100).toFixed(1):0, wo=Math.round(1000+_rng(seed,i+5)*8000);
+    const hk=Math.round(80+_rng(seed,i+6)*200), gifts=Math.round(_rng(seed,i+7)*5);
+    const ctH=`00:${String(8+Math.round(_rng(seed,i+8)*7)).padStart(2,"0")}:${String(Math.round(_rng(seed,i+9)*59)).padStart(2,"0")}`;
+    const ctK=`00:${String(12+Math.round(_rng(seed,i+10)*8)).padStart(2,"0")}:${String(Math.round(_rng(seed,i+11)*59)).padStart(2,"0")}`;
+    days.push({date:ds,dow,plan,planPct:plan>0?+((rev/plan)*100).toFixed(1):0,revenue:rev,orders,avgCheck:avg,
+      foodCostPct:fc,lcSum:lc,lcPct:lcP,writeoffs:wo,khinkali:hk,gifts,ctHk:ctH,ctKh:ctK,
+      lcCooks:Math.round(lc*0.35),lcAdmins:Math.round(lc*0.15),lcWaiters:Math.round(lc*0.25),
+      lcDishwashers:Math.round(lc*0.1),lcCleaners:Math.round(lc*0.08),lcKitchen:Math.round(lc*0.05),lcOther:Math.round(lc*0.02)});
+    i++;
+  }
+  return days;
+}
+function _demoOverview(df,dt){
+  return DEMO_DEPTS.map(dept=>{
+    const days=_demoDaily(dept,df,dt);
+    const rev=days.reduce((a,d)=>a+d.revenue,0), plan=days.reduce((a,d)=>a+d.plan,0);
+    const ord=days.reduce((a,d)=>a+d.orders,0), lc=days.reduce((a,d)=>a+d.lcSum,0);
+    return {dept,revenue:rev,plan,planPct:plan?+((rev/plan)*100).toFixed(1):0,orders:ord,
+      avgCheck:ord>0?Math.round(rev/ord):0,lcSum:lc,lcPct:rev?+((lc/rev)*100).toFixed(1):0,
+      foodCostPct:+(days.reduce((a,d)=>a+d.foodCostPct,0)/days.length).toFixed(1),
+      writeoffs:days.reduce((a,d)=>a+d.writeoffs,0),khinkali:days.reduce((a,d)=>a+d.khinkali,0)};
+  });
+}
+function _demoRoles(dept){
+  const s=dept.length*7, r=(i)=>{const x=Math.sin(s*127+i*311)*49297;return x-Math.floor(x);};
+  return [
+    {role:"Повар",category:"Повара",shifts:52,hours:468,cost:Math.round(180000+r(0)*40000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Су-шеф",category:"Повара",shifts:26,hours:260,cost:Math.round(120000+r(1)*30000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Администратор",category:"Админы",shifts:26,hours:260,cost:Math.round(110000+r(3)*30000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Официант",category:"Официанты",shifts:78,hours:624,cost:Math.round(200000+r(4)*50000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Бармен",category:"Официанты",shifts:26,hours:234,cost:Math.round(85000+r(5)*20000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Посудомойка",category:"Посудомойки",shifts:26,hours:260,cost:Math.round(70000+r(7)*15000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Уборщица",category:"Технички",shifts:26,hours:156,cost:Math.round(50000+r(8)*10000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+    {role:"Кухонный рабочий",category:"Кухрабочие",shifts:26,hours:234,cost:Math.round(65000+r(9)*15000),no_tariff:false,no_tariff_shifts:0,no_tariff_hours:0},
+  ];
+}
+async function _demoFetch(path){
+  await new Promise(r=>setTimeout(r,300+Math.random()*500)); // имитация задержки
+  const u=new URL(path,"http://x"); const p=u.pathname; const q=Object.fromEntries(u.searchParams);
+  if(p==="/api/departments") return {departments:DEMO_DEPTS};
+  if(p==="/api/overview") return {dateFrom:q.date_from,dateTo:q.date_to,summaries:_demoOverview(q.date_from,q.date_to)};
+  if(p==="/api/daily"){const days=_demoDaily(q.dept,q.date_from,q.date_to);return {dept:q.dept,dateFrom:q.date_from,dateTo:q.date_to,days};}
+  if(p==="/api/labor") return {dept:q.dept,roles:_demoRoles(q.dept),noTariff:[]};
+  if(p==="/api/plan") return {dept:q.dept,plan:{}};
+  return {};
+}
 
 async function apiFetch(path, opts = {}) {
+  if (IS_DEMO) return _demoFetch(path);
+  // REAL: начало
   const res = await fetch(`${API_BASE}${path}`, opts);
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(text || `HTTP ${res.status}`);
   }
   return res.json();
+  // REAL: конец
 }
 
 // Клиентский кэш — живёт пока открыта вкладка
@@ -115,7 +179,7 @@ function ErrorBanner({ message }) {
       background: "#fef2f2", border: "1px solid #fecaca",
       display: "flex", alignItems: "flex-start", gap: 12,
     }}>
-      <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+      <span style={{ fontSize: 18 }}>🔴</span>
       <div>
         <div style={{ fontSize: 14, fontWeight: 600, color: "#991b1b", marginBottom: 4 }}>
           Ошибка загрузки
@@ -149,7 +213,7 @@ function RefreshBar({ onRefresh, loading, cacheKey }) {
           opacity: loading ? 0.5 : 1, transition: "all 0.15s",
         }}
       >
-        <RefreshCw size={13} style={{ animation: loading ? "spin 0.8s linear infinite" : "none" }} />
+        <span style={{ display: "inline-block", animation: loading ? "spin 0.8s linear infinite" : "none" }}>↻</span>
         Перезапросить
       </button>
     </div>
@@ -189,7 +253,7 @@ function Badge({ children, variant = "default" }) {
   );
 }
 
-function StatCard({ label, value, sub, trend, Icon, color = "#2563eb" }) {
+function StatCard({ label, value, sub, trend, icon, color = "#2563eb" }) {
   const trendColor = trend > 0 ? "#16a34a" : trend < 0 ? "#dc2626" : "#94a3b8";
   return (
     <div style={{
@@ -200,7 +264,7 @@ function StatCard({ label, value, sub, trend, Icon, color = "#2563eb" }) {
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 12, color: "#64748b", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
-        {Icon && <Icon size={18} strokeWidth={1.5} color={color} style={{ opacity: 0.6 }} />}
+        {icon && <span style={{ fontSize: 18, opacity: 0.5 }}>{icon}</span>}
       </div>
       <div style={{ fontSize: 26, fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em", fontFamily: "'DM Sans', sans-serif" }}>{value}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -224,6 +288,8 @@ function HBarChart({ data, labels, title, color = "#2563eb", barColors = null, v
   const GAP = 7;
   const PAD_TOP = 32;
   const PAD_BOTTOM = 12;
+  const PAD_LEFT = 140;
+  const PAD_RIGHT = 90;
   const canvasH = PAD_TOP + data.length * (ROW_H + GAP) - GAP + PAD_BOTTOM;
 
   const draw = useCallback(() => {
@@ -233,9 +299,6 @@ function HBarChart({ data, labels, title, color = "#2563eb", barColors = null, v
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width) return;
-    // Адаптивные отступы: на узких экранах уменьшаем
-    const PAD_LEFT  = Math.min(140, Math.max(70, rect.width * 0.30));
-    const PAD_RIGHT = Math.min(90,  Math.max(50, rect.width * 0.18));
     canvas.width = rect.width * dpr;
     canvas.height = canvasH * dpr;
     ctx.scale(dpr, dpr);
@@ -461,31 +524,21 @@ function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) 
       });
     }
 
-    // Title
+    // Title + Legend
     ctx.fillStyle = "#0f172a";
     ctx.font = "bold 13px 'DM Sans', sans-serif";
     ctx.textAlign = "left";
     ctx.fillText(title, pad.left, 18);
 
-    // Legend — переносим на новую строку если не влезает в строку с заголовком
-    const titleW = ctx.measureText(title).width;
-    const availW = rect.width - pad.left - pad.right;
-    let legendX = pad.left + titleW + 20;
-    let legendY = 18;
-    // если легенда не помещается — переходим на вторую строку
-    const totalLegendW = datasets.reduce((acc, ds) => {
-      ctx.font = "11px 'DM Sans', sans-serif";
-      return acc + ctx.measureText(ds.label).width + 24;
-    }, 0);
-    if (titleW + 20 + totalLegendW > availW) { legendX = pad.left; legendY = 30; }
+    let legendX = pad.left + ctx.measureText(title).width + 20;
     datasets.forEach((ds) => {
       ctx.fillStyle = ds.color;
       ctx.beginPath();
-      ctx.arc(legendX, legendY - 4, 4, 0, Math.PI * 2);
+      ctx.arc(legendX, 14, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#64748b";
       ctx.font = "11px 'DM Sans', sans-serif";
-      ctx.fillText(ds.label, legendX + 8, legendY);
+      ctx.fillText(ds.label, legendX + 8, 18);
       legendX += ctx.measureText(ds.label).width + 24;
     });
   }, [datasets, labels, title, height]);
@@ -559,6 +612,14 @@ function LoginPage({ onLogin }) {
       setError("Введите логин и пароль");
       return;
     }
+    // DEMO: автовход без сервера
+    if (IS_DEMO) {
+      const u = { login, name: "Демо-режим" };
+      localStorage.setItem("kpf_user", JSON.stringify(u));
+      onLogin(u);
+      return;
+    }
+    // REAL: начало
     setLoading(true);
     setError("");
     fetch(`${API_BASE}/api/auth/login`, {
@@ -578,6 +639,7 @@ function LoginPage({ onLogin }) {
       })
       .catch(() => setError("Не удалось подключиться к серверу"))
       .finally(() => setLoading(false));
+    // REAL: конец
   };
 
   return (
@@ -670,11 +732,13 @@ function PlanAdmin() {
   });
 
   const handleDownloadTemplate = () => {
+    if (IS_DEMO) { alert("В демо-режиме шаблон недоступен. Подключите бэкенд."); return; }
     window.open(`${API_BASE}/api/plan/template?date_from=${templateFrom}&date_to=${templateTo}`, "_blank");
   };
 
   const handleUpload = async () => {
     if (!file) return;
+    if (IS_DEMO) { alert("В демо-режиме загрузка плана недоступна. Подключите бэкенд."); return; }
     setUploading(true);
     setError(null);
     setResult(null);
@@ -703,7 +767,7 @@ function PlanAdmin() {
       {/* Скачать шаблон */}
       <div style={{ background: "#f0fdf4", borderRadius: 12, padding: "16px 20px", marginBottom: 20, border: "1px solid #bbf7d0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#15803d", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}><Download size={15} />Скачать шаблон</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>📥 Скачать шаблон</div>
           <div style={{ fontSize: 12, color: "#166534" }}>Готовый файл с нужным форматом и всеми ресторанами</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -742,10 +806,8 @@ function PlanAdmin() {
           padding: "10px 18px", borderRadius: 10, border: "1.5px dashed #cbd5e1",
           background: "#f8fafc", fontSize: 13, color: "#64748b", cursor: "pointer",
           display: "flex", alignItems: "center", gap: 8,
-          maxWidth: "100%", minWidth: 0, overflow: "hidden",
         }}>
-          <Paperclip size={14} style={{ flexShrink: 0 }} />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file ? file.name : "Выбрать файл .xlsx"}</span>
+          📎 {file ? file.name : "Выбрать файл .xlsx"}
           <input type="file" accept=".xlsx" style={{ display: "none" }}
             onChange={(e) => { setFile(e.target.files[0]); setResult(null); setPreview([]); }} />
         </label>
@@ -814,11 +876,11 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
   const isMobile = useIsMobile();
 
   const navItems = [
-    { id: "overview",   label: "Сводка",         Icon: LayoutDashboard },
-    { id: "department", label: "По ресторану",    Icon: Store },
-    { id: "labor",      label: "ФОТ / LC",        Icon: Users },
-    { id: "alerts",     label: "Внимание",        Icon: AlertTriangle },
-    { id: "plan-admin", label: "Загрузка плана",  Icon: Upload },
+    { id: "overview",    label: "Сводка",          icon: "📊" },
+    { id: "department",  label: "По ресторану",     icon: "🏪" },
+    { id: "labor",       label: "ФОТ / LC",         icon: "👥" },
+    { id: "alerts",      label: "Внимание",         icon: "⚠️" },
+    { id: "plan-admin",  label: "Загрузка плана",   icon: "📥" },
   ];
 
   const handleNav = (id) => { onNavigate(id); if (isMobile) onMobileClose(); };
@@ -858,7 +920,7 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#94a3b8"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#e2e8f0"; }}
           title={expanded ? "Свернуть" : "Развернуть"}
         >
-          {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+          {expanded ? "‹" : "›"}
         </button>
       )}
       {/* Header — лого на всю ширину, по центру */}
@@ -889,24 +951,24 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
             onClick={() => handleNav(item.id)}
             style={{
               display: "flex", alignItems: "center", gap: 10,
-              padding: (expanded || isMobile) ? "8px 12px" : "8px 0",
-              justifyContent: (expanded || isMobile) ? "flex-start" : "center",
+              padding: expanded ? "8px 12px" : "8px 0",
+              justifyContent: expanded ? "flex-start" : "center",
               borderRadius: 10, cursor: "pointer", marginBottom: 2,
-              background: currentView === item.id ? "#eff6ff" : "transparent",
-              color: currentView === item.id ? "#2563eb" : "#64748b",
+              background: currentView === item.id ? "#f1f5f9" : "transparent",
+              color: currentView === item.id ? "#0f172a" : "#64748b",
               fontWeight: currentView === item.id ? 600 : 400,
               fontSize: 13, transition: "all 0.15s", whiteSpace: "nowrap",
             }}
           >
-            <item.Icon size={18} strokeWidth={currentView === item.id ? 2.2 : 1.8} style={{ flexShrink: 0 }} />
-            {(expanded || isMobile) && item.label}
+            <span style={{ fontSize: 15, flexShrink: 0 }}>{item.icon}</span>
+            {expanded && item.label}
           </div>
         ))}
       </div>
 
       {/* Список ресторанов — скроллится только эта часть */}
       <nav style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 8px 8px" }}>
-        {(expanded || isMobile) && (
+        {expanded && (
           <>
             <div style={{ margin: "10px 12px 4px", fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Рестораны
@@ -936,16 +998,11 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
         borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10,
         justifyContent: expanded ? "flex-start" : "center",
       }}>
-        <div
-          title={!expanded ? `${user?.name} · Выйти` : undefined}
-          onClick={!expanded ? onLogout : undefined}
-          style={{
-            width: 32, height: 32, borderRadius: 8, background: "#f1f5f9",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 13, fontWeight: 600, color: "#64748b", flexShrink: 0,
-            cursor: !expanded ? "pointer" : "default",
-          }}
-        >
+        <div style={{
+          width: 32, height: 32, borderRadius: 8, background: "#f1f5f9",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 13, fontWeight: 600, color: "#64748b", flexShrink: 0,
+        }}>
           {user?.name?.[0] || "U"}
         </div>
         {expanded && (
@@ -953,10 +1010,9 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
             <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap" }}>{user?.name}</div>
             <div
               onClick={onLogout}
-              style={{ fontSize: 11, color: "#94a3b8", cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}
+              style={{ fontSize: 11, color: "#94a3b8", cursor: "pointer", whiteSpace: "nowrap" }}
             >
-              <LogOut size={11} />
-              Выйти
+              Выйти →
             </div>
           </div>
         )}
@@ -969,18 +1025,26 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
 // ═══════════════════════════════════════════════════════════
 //  DATE PICKER
 // ═══════════════════════════════════════════════════════════
-function DateRange({ dateFrom, dateTo, onChange, isMobile = false }) {
-  const inputStyle: React.CSSProperties = {
-    padding: isMobile ? "7px 8px" : "8px 12px",
-    borderRadius: 8, border: "1.5px solid #e2e8f0",
-    fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff",
-    minWidth: 0, width: isMobile ? "140px" : "auto",
-  };
+function DateRange({ dateFrom, dateTo, onChange }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-      <input type="date" value={dateFrom} onChange={(e) => onChange(e.target.value, dateTo)} style={inputStyle} />
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <input
+        type="date" value={dateFrom}
+        onChange={(e) => onChange(e.target.value, dateTo)}
+        style={{
+          padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+          fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff",
+        }}
+      />
       <span style={{ color: "#94a3b8", fontSize: 13 }}>→</span>
-      <input type="date" value={dateTo} onChange={(e) => onChange(dateFrom, e.target.value)} style={inputStyle} />
+      <input
+        type="date" value={dateTo}
+        onChange={(e) => onChange(dateFrom, e.target.value)}
+        style={{
+          padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+          fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff",
+        }}
+      />
     </div>
   );
 }
@@ -1099,10 +1163,10 @@ function OverviewPage({ dateFrom, dateTo, departments, refreshSignal }) {
       ) : (
         <BlockLoader loading={loading} radius={16}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
-            <StatCard label="Общая выручка" value={fmtCur(grandRev)} sub={`План: ${fmtCur(grandPlan)}`} trend={grandPlan ? +((grandRev / grandPlan * 100) - 100).toFixed(1) : null} Icon={TrendingUp} />
-            <StatCard label="Заказов" value={fmt(grandOrders)} sub="за период" Icon={ShoppingCart} />
-            <StatCard label="Средний чек" value={fmtCur(grandOrders > 0 ? Math.round(grandRev / grandOrders) : 0)} Icon={CreditCard} />
-            <StatCard label="LC сети" value={fmtPct(grandRev > 0 ? +((grandLC / grandRev) * 100).toFixed(1) : 0)} sub={fmtCur(grandLC)} Icon={Users} color={grandLC / grandRev > 0.25 ? "#dc2626" : "#2563eb"} />
+            <StatCard label="Общая выручка" value={fmtCur(grandRev)} sub={`План: ${fmtCur(grandPlan)}`} trend={grandPlan ? +((grandRev / grandPlan * 100) - 100).toFixed(1) : null} icon="💰" />
+            <StatCard label="Заказов" value={fmt(grandOrders)} sub="за период" icon="🧾" />
+            <StatCard label="Средний чек" value={fmtCur(grandOrders > 0 ? Math.round(grandRev / grandOrders) : 0)} icon="📋" />
+            <StatCard label="LC сети" value={fmtPct(grandRev > 0 ? +((grandLC / grandRev) * 100).toFixed(1) : 0)} sub={fmtCur(grandLC)} icon="👥" color={grandLC / grandRev > 0.25 ? "#dc2626" : "#2563eb"} />
           </div>
         </BlockLoader>
       )}
@@ -1226,7 +1290,7 @@ function OverviewPage({ dateFrom, dateTo, departments, refreshSignal }) {
 
           {/* Legend for revenue (plan vs actual) */}
           {chartMetric === "revenue" && (
-            <div style={{ padding: "10px 20px 0", display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
+            <div style={{ padding: "10px 20px 0", display: "flex", gap: 16, fontSize: 12, color: "#64748b" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 14, height: 10, borderRadius: 3, background: "#2563eb", display: "inline-block" }} />
                 Выручка
@@ -1238,7 +1302,7 @@ function OverviewPage({ dateFrom, dateTo, departments, refreshSignal }) {
             </div>
           )}
           {["planPct", "lc", "fc"].includes(chartMetric) && (
-            <div style={{ padding: "10px 20px 0", display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
+            <div style={{ padding: "10px 20px 0", display: "flex", gap: 16, fontSize: 12, color: "#64748b" }}>
               {[{ c: "#16a34a", l: chartMetric === "lc" ? "≤22%" : chartMetric === "fc" ? "≤28%" : "≥100%" },
                 { c: "#d97706", l: chartMetric === "lc" ? "22–28%" : chartMetric === "fc" ? "28–33%" : "90–100%" },
                 { c: "#dc2626", l: chartMetric === "lc" ? ">28%" : chartMetric === "fc" ? ">33%" : "<90%" }].map(({ c, l }) => (
@@ -1313,7 +1377,7 @@ function DepartmentPage({ dept, dateFrom, dateTo, refreshSignal }) {
 
   if (!dept) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94a3b8", gap: 12 }}>
-      <Store size={40} color="#cbd5e1" strokeWidth={1.2} />
+      <span style={{ fontSize: 40 }}>🏪</span>
       <div style={{ fontSize: 15, fontWeight: 600, color: "#475569" }}>Выберите ресторан</div>
       <div style={{ fontSize: 13 }}>Выберите конкретный филиал из выпадающего списка или из сайдбара</div>
     </div>
@@ -1340,11 +1404,11 @@ function DepartmentPage({ dept, dateFrom, dateTo, refreshSignal }) {
       ) : (
         <BlockLoader loading={loading} radius={16}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
-            <StatCard label="Выручка" value={fmtCur(totalRev)} sub={`План: ${fmtCur(totalPlan)}`} trend={totalPlan ? +((totalRev / totalPlan * 100) - 100).toFixed(1) : null} Icon={TrendingUp} />
-            <StatCard label="Заказов" value={fmt(totalOrders)} sub={`Ср. чек: ${fmtCur(avgCheck)}`} Icon={ShoppingCart} />
-            <StatCard label="LC" value={fmtPct(totalRev > 0 ? +((totalLC / totalRev) * 100).toFixed(1) : 0)} sub={fmtCur(totalLC)} Icon={Users} />
-            <StatCard label="Списания" value={fmtCur(totalWO)} Icon={Package} />
-            <StatCard label="Хинкали" value={`${fmt(totalKhinkali)} шт`} Icon={Utensils} />
+            <StatCard label="Выручка" value={fmtCur(totalRev)} sub={`План: ${fmtCur(totalPlan)}`} trend={totalPlan ? +((totalRev / totalPlan * 100) - 100).toFixed(1) : null} icon="💰" />
+            <StatCard label="Заказов" value={fmt(totalOrders)} sub={`Ср. чек: ${fmtCur(avgCheck)}`} icon="🧾" />
+            <StatCard label="LC" value={fmtPct(totalRev > 0 ? +((totalLC / totalRev) * 100).toFixed(1) : 0)} sub={fmtCur(totalLC)} icon="👥" />
+            <StatCard label="Списания" value={fmtCur(totalWO)} icon="📦" />
+            <StatCard label="Хинкали" value={`${fmt(totalKhinkali)} шт`} icon="🥟" />
           </div>
         </BlockLoader>
       )}
@@ -1506,223 +1570,6 @@ function DepartmentPage({ dept, dateFrom, dateTo, refreshSignal }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  LABOR NETWORK PAGE (ФОТ / LC по всем ресторанам)
-// ═══════════════════════════════════════════════════════════
-function LaborNetworkPage({ dateFrom, dateTo, refreshSignal }) {
-  const isMobile = useIsMobile();
-  const overviewKey = `overview:${dateFrom}:${dateTo}`;
-  const [summaries, setSummaries] = useState(() => getCached(overviewKey) || []);
-  const [loading, setLoading] = useState(() => !getCached(overviewKey));
-  const [error, setError] = useState(null);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!dateFrom || !dateTo) return;
-    const hit = getCached(overviewKey);
-    if (hit) { setSummaries(hit); setLoading(false); return; }
-    let cancelled = false;
-    setLoading(true);
-    apiFetch(`/api/overview?date_from=${dateFrom}&date_to=${dateTo}`)
-      .then((json) => {
-        const rows = (json.summaries || []).map((s) => ({
-          dept: s.dept, totalRev: s.revenue || 0, totalPlan: s.plan || 0,
-          planPct: s.planPct || 0, lcPct: s.lcPct || 0, totalLC: s.lcSum || 0,
-          avgFC: s.foodCostPct || 0,
-        }));
-        setCached(overviewKey, rows);
-        if (!cancelled) setSummaries(rows);
-      })
-      .catch((e) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [overviewKey, tick, refreshSignal]);
-
-  const handleRefresh = useCallback(() => { clearCached(overviewKey); setTick((t) => t + 1); }, [overviewKey]);
-
-  if (error) return <ErrorBanner message={error} />;
-
-  const totalRev = summaries.reduce((a, s) => a + s.totalRev, 0);
-  const totalLC  = summaries.reduce((a, s) => a + s.totalLC,  0);
-  const avgLC    = totalRev > 0 ? +((totalLC / totalRev) * 100).toFixed(1) : 0;
-  const sorted   = [...summaries].sort((a, b) => a.lcPct - b.lcPct);
-  const best     = sorted[0];
-  const worst    = sorted[sorted.length - 1];
-
-  // Для графиков — сортировка по LC% убыв.
-  const byLC  = [...summaries].sort((a, b) => b.lcPct - a.lcPct);
-  const short = (d) => d.replace(/^СХ /, "").replace("Хинкалыч ", "").trim();
-
-  // Категории LC для donut-аналога — считаем разбивку по диапазонам
-  const lcBands = [
-    { label: "≤ 20% (отлично)", color: "#16a34a", count: summaries.filter(s => s.lcPct <= 20).length },
-    { label: "20–25% (норма)",  color: "#84cc16", count: summaries.filter(s => s.lcPct > 20 && s.lcPct <= 25).length },
-    { label: "25–28% (внимание)", color: "#f59e0b", count: summaries.filter(s => s.lcPct > 25 && s.lcPct <= 28).length },
-    { label: "> 28% (превышение)", color: "#dc2626", count: summaries.filter(s => s.lcPct > 28).length },
-  ].filter(b => b.count > 0);
-
-  const isFirst = loading && !summaries.length;
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>ФОТ / LC по сети</h2>
-        <RefreshBar onRefresh={handleRefresh} loading={loading} cacheKey={overviewKey} />
-      </div>
-      <p style={{ margin: "0 0 20px", fontSize: 13, color: "#94a3b8" }}>Сравнительный анализ по всем филиалам</p>
-
-      {/* Stat cards */}
-      {isFirst ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
-          {[0,1,2,3].map(i => <StatCardSkeleton key={i} />)}
-        </div>
-      ) : (
-        <BlockLoader loading={loading} radius={16}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 }}>
-            <StatCard label="LC сети (ср.)" value={`${avgLC}%`} sub={fmtCur(totalLC)} Icon={Users}
-              color={avgLC > 28 ? "#dc2626" : avgLC > 22 ? "#d97706" : "#16a34a"} />
-            <StatCard label="Суммарный ФОТ" value={fmtCur(totalLC)} sub={`из ${fmtCur(totalRev)}`} Icon={TrendingUp} />
-            <StatCard label="Лучший LC" value={best ? `${best.lcPct}%` : "—"}
-              sub={best ? short(best.dept) : ""} Icon={CheckCircle2} color="#16a34a" />
-            <StatCard label="Худший LC" value={worst ? `${worst.lcPct}%` : "—"}
-              sub={worst ? short(worst.dept) : ""} Icon={AlertTriangle} color="#dc2626" />
-          </div>
-        </BlockLoader>
-      )}
-
-      {/* График LC% по ресторанам */}
-      {isFirst ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, marginBottom: 16 }}>
-          <Skeleton height={340} style={{ borderRadius: 16 }} />
-        </div>
-      ) : (
-        <BlockLoader loading={loading} radius={16}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, marginBottom: 16 }}>
-          {/* Основной сравнительный график LC% */}
-          <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden" }}>
-            <div style={{ padding: "16px 20px 8px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>LC % по ресторанам</div>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Сортировка от большего к меньшему</div>
-              </div>
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                {[{ c: "#16a34a", l: "≤ 20%" }, { c: "#84cc16", l: "20–25%" }, { c: "#f59e0b", l: "25–28%" }, { c: "#dc2626", l: "> 28%" }].map(({ c, l }) => (
-                  <span key={l} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748b" }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: c, display: "inline-block" }} />{l}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div style={{ padding: "12px 20px 20px" }}>
-              <HBarChart
-                data={byLC.map(s => s.lcPct)}
-                labels={byLC.map(s => short(s.dept))}
-                title=""
-                barColors={byLC.map(s => s.lcPct > 28 ? "#dc2626" : s.lcPct > 25 ? "#f59e0b" : s.lcPct > 20 ? "#84cc16" : "#16a34a")}
-                valueSuffix="%"
-              />
-            </div>
-          </div>
-
-          {/* График ФОТ в рублях */}
-          <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden" }}>
-            <div style={{ padding: "16px 20px 8px", borderBottom: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>Абсолютный ФОТ, ₽</div>
-              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Общий фонд оплаты труда за период</div>
-            </div>
-            <div style={{ padding: "12px 20px 20px" }}>
-              <HBarChart
-                data={[...summaries].sort((a,b) => b.totalLC - a.totalLC).map(s => s.totalLC)}
-                labels={[...summaries].sort((a,b) => b.totalLC - a.totalLC).map(s => short(s.dept))}
-                title=""
-                barColors={[...summaries].sort((a,b) => b.totalLC - a.totalLC).map(() => "#2563eb")}
-              />
-            </div>
-          </div>
-        </div>
-        </BlockLoader>
-      )}
-
-      {/* Таблица сравнения */}
-      {isFirst ? (
-        <Skeleton height={300} style={{ borderRadius: 16 }} />
-      ) : (
-        <BlockLoader loading={loading}>
-        <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden" }}>
-          <div style={{ padding: "14px 20px 10px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>Детализация по ресторанам</div>
-            <div style={{ display: "flex", gap: 8, marginLeft: isMobile ? 0 : "auto", flexWrap: "wrap" }}>
-              {lcBands.map(b => (
-                <span key={b.label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b" }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: b.color, display: "inline-block" }} />
-                  {b.label}: <b>{b.count}</b>
-                </span>
-              ))}
-            </div>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["#", "Ресторан", "Выручка", "ФОТ, ₽", "LC %", "Доля в общем ФОТ", "Foodcost %"].map(h => (
-                    <th key={h} style={{ padding: "10px 14px", textAlign: h === "#" ? "center" : "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((s, i) => {
-                  const lcColor = s.lcPct > 28 ? "#dc2626" : s.lcPct > 25 ? "#f59e0b" : s.lcPct > 20 ? "#84cc16" : "#16a34a";
-                  const sharePct = totalLC > 0 ? +((s.totalLC / totalLC) * 100).toFixed(1) : 0;
-                  return (
-                    <tr key={i} style={{ borderBottom: "1px solid #f8fafc" }}>
-                      <td style={{ padding: "10px 14px", textAlign: "center", color: "#94a3b8", fontSize: 12 }}>{i + 1}</td>
-                      <td style={{ padding: "10px 14px", fontWeight: 600, whiteSpace: "nowrap" }}>{short(s.dept)}</td>
-                      <td style={{ padding: "10px 14px", color: "#64748b" }}>{fmtCur(s.totalRev)}</td>
-                      <td style={{ padding: "10px 14px", fontWeight: 600 }}>{fmtCur(s.totalLC)}</td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: lcColor, flexShrink: 0 }} />
-                          <span style={{ fontWeight: 700, color: lcColor }}>{s.lcPct}%</span>
-                        </span>
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, background: "#f1f5f9", borderRadius: 3, minWidth: 60 }}>
-                            <div style={{ width: `${sharePct}%`, height: "100%", background: "#2563eb", borderRadius: 3 }} />
-                          </div>
-                          <span style={{ fontSize: 11, color: "#64748b", whiteSpace: "nowrap" }}>{sharePct}%</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <Badge variant={s.avgFC <= 28 ? "success" : s.avgFC <= 33 ? "warning" : "danger"}>{s.avgFC}%</Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: "#f0f9ff" }}>
-                  <td colSpan={2} style={{ padding: "10px 14px", fontWeight: 700 }}>ИТОГО</td>
-                  <td style={{ padding: "10px 14px", color: "#64748b" }}>{fmtCur(totalRev)}</td>
-                  <td style={{ padding: "10px 14px", fontWeight: 700 }}>{fmtCur(totalLC)}</td>
-                  <td style={{ padding: "10px 14px" }}>
-                    <span style={{ fontWeight: 700, color: avgLC > 28 ? "#dc2626" : avgLC > 25 ? "#f59e0b" : "#16a34a" }}>{avgLC}%</span>
-                  </td>
-                  <td style={{ padding: "10px 14px" }}>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>100%</span>
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-        </BlockLoader>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
 //  LABOR PAGE (ФОТ / LC детализация)
 // ═══════════════════════════════════════════════════════════
 function LaborPage({ dept, dateFrom, dateTo, refreshSignal }) {
@@ -1760,7 +1607,13 @@ function LaborPage({ dept, dateFrom, dateTo, refreshSignal }) {
 
   const handleRefresh = useCallback(() => { clearCached(laborKey); clearCached(dailyKey); setTick((t) => t + 1); }, [laborKey, dailyKey]);
 
-  if (!dept) return <LaborNetworkPage dateFrom={dateFrom} dateTo={dateTo} refreshSignal={refreshSignal} />;
+  if (!dept) return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94a3b8", gap: 12 }}>
+      <span style={{ fontSize: 40 }}>👥</span>
+      <div style={{ fontSize: 15, fontWeight: 600, color: "#475569" }}>Выберите ресторан</div>
+      <div style={{ fontSize: 13 }}>Выберите конкретный филиал из выпадающего списка или из сайдбара</div>
+    </div>
+  );
   if (error) return <ErrorBanner message={error} />;
 
   const LC_COLORS = {
@@ -1801,10 +1654,10 @@ function LaborPage({ dept, dateFrom, dateTo, refreshSignal }) {
       ) : (
         <BlockLoader loading={loading} radius={16}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
-            <StatCard label="LC итого" value={fmtCur(totalLC)} sub={fmtPct(totalRev > 0 ? +((totalLC / totalRev) * 100).toFixed(1) : 0)} Icon={Users} />
-            <StatCard label="Выручка" value={fmtCur(totalRev)} Icon={TrendingUp} />
-            <StatCard label="Смен всего" value={fmt(roles.reduce((a, r) => a + r.shifts, 0))} Icon={Calendar} />
-            <StatCard label="Часов всего" value={fmt(roles.reduce((a, r) => a + r.hours, 0))} Icon={Clock} />
+            <StatCard label="LC итого" value={fmtCur(totalLC)} sub={fmtPct(totalRev > 0 ? +((totalLC / totalRev) * 100).toFixed(1) : 0)} icon="👥" />
+            <StatCard label="Выручка" value={fmtCur(totalRev)} icon="💰" />
+            <StatCard label="Смен всего" value={fmt(roles.reduce((a, r) => a + r.shifts, 0))} icon="📅" />
+            <StatCard label="Часов всего" value={fmt(roles.reduce((a, r) => a + r.hours, 0))} icon="⏱" />
           </div>
         </BlockLoader>
       )}
@@ -1839,7 +1692,7 @@ function LaborPage({ dept, dateFrom, dateTo, refreshSignal }) {
               color: LC_COLORS[cat] || "#94a3b8",
             }))}
             title="Распределение ФОТ"
-            size={isMobile ? 140 : 180}
+            size={180}
           />
         </div>
       </div>
@@ -1999,10 +1852,10 @@ function AlertsPage({ dept, departments, dateFrom, dateTo, refreshSignal }) {
 
   const isLoading = loading && !summaries.length;
   const COLORS = {
-    danger:  { bg: "#fef2f2", border: "#fecaca",  Icon: AlertCircle,    iconColor: "#dc2626", badge: "#fee2e2", badgeText: "#991b1b" },
-    warning: { bg: "#fffbeb", border: "#fde68a",  Icon: AlertTriangle,  iconColor: "#d97706", badge: "#fef3c7", badgeText: "#92400e" },
-    info:    { bg: "#eff6ff", border: "#bfdbfe",  Icon: Info,           iconColor: "#2563eb", badge: "#dbeafe", badgeText: "#1e40af" },
-    success: { bg: "#f0fdf4", border: "#bbf7d0",  Icon: CheckCircle2,   iconColor: "#16a34a", badge: "#dcfce7", badgeText: "#166534" },
+    danger:  { bg: "#fef2f2", border: "#fecaca",  icon: "🔴", badge: "#fee2e2", badgeText: "#991b1b" },
+    warning: { bg: "#fffbeb", border: "#fde68a",  icon: "🟡", badge: "#fef3c7", badgeText: "#92400e" },
+    info:    { bg: "#eff6ff", border: "#bfdbfe",  icon: "🔵", badge: "#dbeafe", badgeText: "#1e40af" },
+    success: { bg: "#f0fdf4", border: "#bbf7d0",  icon: "🟢", badge: "#dcfce7", badgeText: "#166534" },
   };
 
   return (
@@ -2028,7 +1881,7 @@ function AlertsPage({ dept, departments, dateFrom, dateTo, refreshSignal }) {
                 background: c.bg, border: `1px solid ${c.border}`,
                 display: "flex", alignItems: "center", gap: 10,
               }}>
-                <c.Icon size={24} color={c.iconColor} strokeWidth={1.8} />
+                <span style={{ fontSize: 22 }}>{c.icon}</span>
                 <div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a" }}>{cnt}</div>
                   <div style={{ fontSize: 11, color: "#64748b" }}>{labels[type]}</div>
@@ -2046,7 +1899,7 @@ function AlertsPage({ dept, departments, dateFrom, dateTo, refreshSignal }) {
         </div>
       ) : alerts.length === 0 ? (
         <div style={{ padding: "24px 20px", borderRadius: 16, background: "#f0fdf4", border: "1px solid #bbf7d0", textAlign: "center" }}>
-          <CheckCircle2 size={40} color="#16a34a" strokeWidth={1.5} style={{ marginBottom: 8 }} />
+          <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
           <div style={{ fontSize: 15, fontWeight: 600, color: "#166534" }}>Всё в норме</div>
           <div style={{ fontSize: 13, color: "#4ade80", marginTop: 4 }}>
             {dept ? `По ${dept.replace(/^СХ /, "")} нет отклонений за период` : "За период нет отклонений ни по одному ресторану"}
@@ -2062,7 +1915,7 @@ function AlertsPage({ dept, departments, dateFrom, dateTo, refreshSignal }) {
                 display: "flex", alignItems: "center", gap: 12,
                 padding: "12px 16px", borderRadius: 12, background: c.bg, border: `1px solid ${c.border}`,
               }}>
-                <c.Icon size={16} color={c.iconColor} strokeWidth={2} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 14, flexShrink: 0 }}>{c.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{a.title}</span>
@@ -2072,7 +1925,7 @@ function AlertsPage({ dept, departments, dateFrom, dateTo, refreshSignal }) {
                     }}>{a.value}</span>
                   </div>
                   <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                    <MapPin size={11} style={{ display: "inline", marginRight: 3, verticalAlign: "middle" }} />{a.restaurant}{a.detail ? ` · ${a.detail}` : ""}
+                    🏪 {a.restaurant}{a.detail ? ` · ${a.detail}` : ""}
                   </div>
                 </div>
               </div>
@@ -2204,15 +2057,15 @@ export default function App() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           marginBottom: 16, flexWrap: "wrap", gap: 10,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {isMobile && (
               <button onClick={() => setSidebarOpen(true)} style={{
                 width: 36, height: 36, borderRadius: 8, border: "1.5px solid #e2e8f0",
                 background: "#fff", cursor: "pointer", fontSize: 18, display: "flex",
                 alignItems: "center", justifyContent: "center", flexShrink: 0,
-              }}><Menu size={18} /></button>
+              }}>☰</button>
             )}
-            <DateRange dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} isMobile={isMobile} />
+            <DateRange dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
           </div>
           {showDeptSelect && (
             <select

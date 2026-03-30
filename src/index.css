@@ -1,0 +1,20 @@
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+/* Мобильная адаптация таблиц */
+@media (max-width: 767px) {
+  table { font-size: 11px !important; }
+  th, td { padding: 6px 8px !important; }
+
+  /* Карточки статистики — 2 в ряд */
+  .stat-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* Графики — полная ширина */
+  .chart-grid { grid-template-columns: 1fr !important; }
+
+  /* Скрыть некоторые колонки таблицы КПФ на мобиле */
+  .kpf-table .hide-mobile { display: none !important; }
+}

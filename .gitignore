@@ -1,0 +1,9 @@
+echo "node_modules/
+dist/
+.vite/
+__pycache__/
+*.pyc
+kpf_token.txt
+kpf_debug.log
+auth_token.txt
+.env" > .gitignore

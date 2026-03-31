@@ -15,8 +15,9 @@ const API_BASE = window.location.hostname.includes("localhost") || window.locati
   ? "http://localhost:8000"
   : "https://80be-2-133-69-178.ngrok-free.app";
 
-async function apiFetch(path, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, opts);
+  async function apiFetch(path, opts = {}) {
+    const headers = { "ngrok-skip-browser-warning": "1", ...(opts.headers || {}) };
+    const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(text || `HTTP ${res.status}`);
@@ -565,7 +566,7 @@ function LoginPage({ onLogin }) {
     setError("");
     fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "1" },
       body: JSON.stringify({ login, password }),
     })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))

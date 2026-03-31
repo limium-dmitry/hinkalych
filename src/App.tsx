@@ -11,7 +11,9 @@ import {
 // ═══════════════════════════════════════════════════════════
 //  API LAYER + CLIENT CACHE
 // ═══════════════════════════════════════════════════════════
-const API_BASE = `http://${window.location.hostname}:8000`;
+const API_BASE = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
+  ? "http://localhost:8000"
+  : "https://80be-2-133-69-178.ngrok-free.app";
 
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, opts);

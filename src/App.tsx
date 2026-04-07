@@ -13,7 +13,7 @@ import {
 // ═══════════════════════════════════════════════════════════
 const API_BASE = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
   ? "http://localhost:8000"
-  : "https://80be-2-133-69-178.ngrok-free.app";
+  : "https://a74b-95-58-112-250.ngrok-free.app";
 
   async function apiFetch(path, opts = {}) {
     const headers = { "ngrok-skip-browser-warning": "1", ...(opts.headers || {}) };
@@ -332,12 +332,17 @@ function BarChart({ data, labels, title, color = "#2563eb", height = 220, valueP
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    const pad = { top: 30, right: 16, bottom: 40, left: 60 };
+    // Адаптивный левый отступ: на узких экранах уменьшаем
+    const padLeft = rect.width < 320 ? 42 : rect.width < 500 ? 50 : 60;
+    const pad = { top: 30, right: 12, bottom: 34, left: padLeft };
     const w = rect.width - pad.left - pad.right;
     const h = rect.height - pad.top - pad.bottom;
     const max = Math.max(...data) * 1.1 || 1;
     const barW = Math.min(28, (w / data.length) * 0.6);
     const gap = w / data.length;
+
+    // Адаптивный шаг меток: минимум 22px между ними
+    const labelStep = Math.max(1, Math.ceil(data.length / Math.floor(w / 22)));
 
     ctx.strokeStyle = "#f1f5f9";
     ctx.lineWidth = 1;
@@ -348,10 +353,10 @@ function BarChart({ data, labels, title, color = "#2563eb", height = 220, valueP
       ctx.lineTo(pad.left + w, y);
       ctx.stroke();
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "11px 'DM Sans', sans-serif";
+      ctx.font = `${rect.width < 400 ? 10 : 11}px 'DM Sans', sans-serif`;
       ctx.textAlign = "right";
       const val = Math.round(max - (max / 4) * i);
-      ctx.fillText(valuePrefix + val.toLocaleString("ru-RU") + valueSuffix, pad.left - 8, y + 4);
+      ctx.fillText(valuePrefix + val.toLocaleString("ru-RU") + valueSuffix, pad.left - 6, y + 4);
     }
 
     data.forEach((v, i) => {
@@ -366,11 +371,11 @@ function BarChart({ data, labels, title, color = "#2563eb", height = 220, valueP
       ctx.roundRect(x, y, barW, barH, [4, 4, 0, 0]);
       ctx.fill();
 
-      if (labels && labels[i] && data.length <= 31) {
+      if (labels && labels[i] && i % labelStep === 0) {
         ctx.fillStyle = "#64748b";
-        ctx.font = "11px 'DM Sans', sans-serif";
+        ctx.font = `${rect.width < 400 ? 9 : 10}px 'DM Sans', sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText(labels[i], x + barW / 2, pad.top + h + 16);
+        ctx.fillText(labels[i], x + barW / 2, pad.top + h + 14);
       }
     });
 
@@ -394,18 +399,22 @@ function BarChart({ data, labels, title, color = "#2563eb", height = 220, valueP
 
 function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) {
   const canvasRef = useRef(null);
-  useEffect(() => {
+
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !datasets.length) return;
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    const pad = { top: 30, right: 16, bottom: 40, left: 60 };
+    // Адаптивный левый отступ
+    const padLeft = rect.width < 320 ? 42 : rect.width < 500 ? 50 : 60;
+    const pad = { top: 30, right: 12, bottom: 34, left: padLeft };
     const w = rect.width - pad.left - pad.right;
     const h = rect.height - pad.top - pad.bottom;
     const allVals = datasets.flatMap((d) => d.data);
@@ -423,10 +432,10 @@ function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) 
       ctx.lineTo(pad.left + w, y);
       ctx.stroke();
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "11px 'DM Sans', sans-serif";
+      ctx.font = `${rect.width < 400 ? 10 : 11}px 'DM Sans', sans-serif`;
       ctx.textAlign = "right";
       const val = Math.round(max - (range / 4) * i);
-      ctx.fillText(val.toLocaleString("ru-RU") + valueSuffix, pad.left - 8, y + 4);
+      ctx.fillText(val.toLocaleString("ru-RU") + valueSuffix, pad.left - 6, y + 4);
     }
 
     // Lines
@@ -451,16 +460,16 @@ function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) 
       ctx.globalAlpha = 1;
     });
 
-    // X Labels
+    // X Labels — адаптивный step: минимум 22px между метками
     if (labels) {
-      const step = Math.max(1, Math.floor(labels.length / 10));
+      const step = Math.max(1, Math.ceil(labels.length / Math.floor(w / 22)));
       labels.forEach((l, i) => {
         if (i % step !== 0 && i !== labels.length - 1) return;
         const x = pad.left + (i / (labels.length - 1 || 1)) * w;
         ctx.fillStyle = "#94a3b8";
-        ctx.font = "10px 'DM Sans', sans-serif";
+        ctx.font = `${rect.width < 400 ? 9 : 10}px 'DM Sans', sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText(l, x, pad.top + h + 16);
+        ctx.fillText(l, x, pad.top + h + 14);
       });
     }
 
@@ -475,7 +484,6 @@ function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) 
     const availW = rect.width - pad.left - pad.right;
     let legendX = pad.left + titleW + 20;
     let legendY = 18;
-    // если легенда не помещается — переходим на вторую строку
     const totalLegendW = datasets.reduce((acc, ds) => {
       ctx.font = "11px 'DM Sans', sans-serif";
       return acc + ctx.measureText(ds.label).width + 24;
@@ -491,7 +499,16 @@ function LineChart({ datasets, labels, title, height = 220, valueSuffix = "" }) 
       ctx.fillText(ds.label, legendX + 8, legendY);
       legendX += ctx.measureText(ds.label).width + 24;
     });
-  }, [datasets, labels, title, height]);
+  }, [datasets, labels, title, height, valueSuffix]);
+
+  useEffect(() => {
+    draw();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [draw]);
 
   return <canvas ref={canvasRef} style={{ width: "100%", height, display: "block" }} />;
 }
@@ -1391,11 +1408,11 @@ function DepartmentPage({ dept, dateFrom, dateTo, refreshSignal }) {
               ]}
               labels={data.map((d) => d.date.slice(8))}
               title="Выручка vs План"
-              height={200}
+              height={isMobile ? 240 : 200}
             />
           </div>
           <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #f1f5f9" }}>
-            <BarChart data={data.map((d) => d.orders)} labels={data.map((d) => d.date.slice(8))} title="Заказы" color="#0891b2" height={200} />
+            <BarChart data={data.map((d) => d.orders)} labels={data.map((d) => d.date.slice(8))} title="Заказы" color="#0891b2" height={isMobile ? 240 : 200} />
           </div>
           <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #f1f5f9" }}>
             <LineChart
@@ -1405,12 +1422,12 @@ function DepartmentPage({ dept, dateFrom, dateTo, refreshSignal }) {
               ]}
               labels={data.map((d) => d.date.slice(8))}
               title="LC % и Себестоимость %"
-              height={200}
+              height={isMobile ? 240 : 200}
               valueSuffix="%"
             />
           </div>
           <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #f1f5f9" }}>
-            <BarChart data={data.map((d) => d.khinkali)} labels={data.map((d) => d.date.slice(8))} title="Хинкали (шт)" color="#16a34a" height={200} />
+            <BarChart data={data.map((d) => d.khinkali)} labels={data.map((d) => d.date.slice(8))} title="Хинкали (шт)" color="#16a34a" height={isMobile ? 240 : 200} />
           </div>
         </div>
         </BlockLoader>

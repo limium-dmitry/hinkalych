@@ -13,7 +13,7 @@ import {
 // ═══════════════════════════════════════════════════════════
 const API_BASE = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
   ? "http://localhost:8000"
-  : "https://a74b-95-58-112-250.ngrok-free.app";
+  : "https://cdec-95-58-112-250.ngrok-free.app";
 
   async function apiFetch(path, opts = {}) {
     const headers = { "ngrok-skip-browser-warning": "1", ...(opts.headers || {}) };

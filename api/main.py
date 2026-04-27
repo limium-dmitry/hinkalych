@@ -54,6 +54,8 @@ LC_CATEGORIES = [
     ("Кухрабочие",["кухонный рабочий","кухраб","разнорабоч"]),
 ]
 PLAN_FILE = "plans.json"
+KHINKALI_FILE = os.path.join(os.path.dirname(__file__), "khinkali_settings.json")
+ROLE_RATES_FILE = os.path.join(os.path.dirname(__file__), "role_rates.json")
 
 # ═══════════════════════ ЛОГИРОВАНИЕ ═══════════════════════
 _LOG_FILE = os.path.join(os.path.dirname(__file__), "kpf_debug.log")
@@ -249,16 +251,18 @@ def fetch_dishes(d_from, d_to, dept) -> tuple:
             "Department": _dept_filter(dept),
         },
     }, "DISHES", d_from, d_to)
+    cfg = _khinkali_settings()
+    hk_names, hk_dozen, hk_excl = cfg["names"], cfg["dozen"], cfg["exclude"]
     hk, gifts = {}, {}
     for row in (rows or []):
         ddate = str(row.get("OpenDate.Typed", ""))[:10]
         name = str(row.get("DishName", "")).strip()
         qty = int(float(row.get("DishAmountInt") or 0))
         nl = name.lower()
-        if not any(k in nl for k in HK_EXCL):
-            if any(k in nl for k in HK_DOZEN):
+        if not any(k in nl for k in hk_excl):
+            if any(k in nl for k in hk_dozen):
                 hk.setdefault(ddate, {"hk_total": 0})["hk_total"] += qty * 12
-            elif any(k in nl for k in HK_NAMES):
+            elif any(k in nl for k in hk_names):
                 m = SET_RE.match(name)
                 hk.setdefault(ddate, {"hk_total": 0})["hk_total"] += qty * int(m.group(1)) if m else qty
         if nl.startswith(GIFT_PREFIX):
@@ -289,9 +293,16 @@ def _get_roles_info() -> dict:
             name = (role.findtext("name") or "").strip()
             try: rate = float(role.findtext("paymentPerHour") or 0)
             except ValueError: rate = 0.0
-            if rid: roles[rid] = {"name": name, "rate": rate}
+            if rid: roles[rid] = {"name": name, "rate_iiko": rate, "rate": rate}
+        # ручные overrides из role_rates.json (приоритет над iiko)
+        ovs = _role_overrides()
+        ov_applied = 0
+        for rid, ov in ovs.items():
+            if rid in roles:
+                roles[rid]["rate"] = ov
+                ov_applied += 1
         _roles_cache = roles; _roles_cache_ts = time.time()
-        log.info(f"[ROLES] кэш обновлён: {len(roles)}")
+        log.info(f"[ROLES] кэш обновлён: {len(roles)} (overrides применено: {ov_applied})")
     except ET.ParseError as e: log.error(f"[ROLES] XML: {e}")
     return _roles_cache
 
@@ -441,6 +452,35 @@ def _load_plans() -> dict:
         except: pass
     return {}
 
+def _load_json(path: str, default):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f: return json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning(f"[SETTINGS] не смог прочесть {path}: {e}")
+    return default
+
+def _save_json(path: str, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def _khinkali_settings() -> dict:
+    """Текущие настройки счётчика хинкалей.
+    Возврат: {"names": [...], "dozen": [...], "exclude": [...]}
+    Если файла нет — fallback на дефолтные константы HK_NAMES/HK_DOZEN/HK_EXCL."""
+    d = _load_json(KHINKALI_FILE, {})
+    return {
+        "names":   list(d.get("names")   or HK_NAMES),
+        "dozen":   list(d.get("dozen")   or HK_DOZEN),
+        "exclude": list(d.get("exclude") or HK_EXCL),
+    }
+
+def _role_overrides() -> dict:
+    """{ roleId: rate_per_hour } — ручные переопределения ставок ролей."""
+    d = _load_json(ROLE_RATES_FILE, {})
+    return {str(k): float(v) for k, v in (d.get("overrides") or {}).items()}
+
+
 def _save_plans(data: dict):
     with open(PLAN_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -523,13 +563,15 @@ def get_overview(date_from: str = Query(...), date_to: str = Query(...)):
             if val == 0: continue
             wo_map[dept] = round(wo_map.get(dept, 0.0) + val, 2)
 
+        cfg_hk = _khinkali_settings()
+        hk_n, hk_d, hk_e = cfg_hk["names"], cfg_hk["dozen"], cfg_hk["exclude"]
         hk_map = {}
         for row in rows_hk:
             dept = str(row.get("Department", "")); name = str(row.get("DishName", "")).strip()
             qty = int(float(row.get("DishAmountInt") or 0)); nl = name.lower()
-            if any(k in nl for k in HK_EXCL): continue
-            if any(k in nl for k in HK_DOZEN): hk_map[dept] = hk_map.get(dept, 0) + qty * 12
-            elif any(k in nl for k in HK_NAMES):
+            if any(k in nl for k in hk_e): continue
+            if any(k in nl for k in hk_d): hk_map[dept] = hk_map.get(dept, 0) + qty * 12
+            elif any(k in nl for k in hk_n):
                 m = SET_RE.match(name); hk_map[dept] = hk_map.get(dept, 0) + (qty * int(m.group(1)) if m else qty)
 
         depts = sorted(set(list(rev_map) + list(fc_map) + list(wo_map)))
@@ -755,6 +797,67 @@ def debug_cooking_places(dept: str = Query(...), date_from: str = Query(...), da
         "matched_hk": [p for p in places if CP_HK in p.lower()],
         "matched_kh": [p for p in places if CP_KH in p.lower()],
         "cp_hk_pattern": CP_HK, "cp_kh_pattern": CP_KH}
+
+# ───────── Settings: счётчик хинкалей ─────────
+@app.get("/api/settings/khinkali")
+def get_khinkali_settings():
+    """Текущие списки подстрок для счётчика хинкалей.
+    Если файл не создан — отдаются дефолты (HK_NAMES/HK_DOZEN/HK_EXCL)."""
+    return _khinkali_settings()
+
+@app.post("/api/settings/khinkali")
+def set_khinkali_settings(body: dict = Body(...)):
+    data = {
+        "names":   [s.strip() for s in (body.get("names")   or []) if s and str(s).strip()],
+        "dozen":   [s.strip() for s in (body.get("dozen")   or []) if s and str(s).strip()],
+        "exclude": [s.strip() for s in (body.get("exclude") or []) if s and str(s).strip()],
+    }
+    _save_json(KHINKALI_FILE, data)
+    log.info(f"[SETTINGS] khinkali сохранены: names={len(data['names'])}, "
+             f"dozen={len(data['dozen'])}, exclude={len(data['exclude'])}")
+    return {"ok": True, "saved": data}
+
+# ───────── Settings: ставки ролей (override iiko) ─────────
+@app.get("/api/settings/role-rates")
+def get_role_rates():
+    """Список ролей iiko с двумя ставками: «как в iiko» и «эффективная»
+    (override из role_rates.json или iiko, если override нет).
+    Используется в скрытой админ-вкладке."""
+    roles = _get_roles_info()
+    overrides = _role_overrides()
+    out = []
+    for rid, info in roles.items():
+        ov = overrides.get(rid)
+        out.append({
+            "id": rid,
+            "name": info.get("name") or "",
+            "iikoRate": info.get("rate_iiko", info.get("rate", 0.0)),
+            "rate": info.get("rate", 0.0),
+            "override": float(ov) if ov is not None else None,
+        })
+    out.sort(key=lambda x: (x["name"] or "").lower())
+    return {"roles": out}
+
+@app.post("/api/settings/role-rates")
+def set_role_rates(body: dict = Body(...)):
+    """Тело: {"overrides": {"<roleId>": <rate>}}.
+    Пустые/null значения удаляют override для этой роли.
+    После сохранения сбрасывается кэш ролей, чтобы новые ставки
+    подхватились на следующем расчёте LC."""
+    raw = body.get("overrides") or {}
+    cleaned = {}
+    for rid, val in raw.items():
+        if val is None or val == "" or val == 0:
+            continue
+        try: cleaned[str(rid)] = float(val)
+        except (TypeError, ValueError): pass
+    _save_json(ROLE_RATES_FILE, {"overrides": cleaned})
+    global _roles_cache, _roles_cache_ts, _att_cache
+    _roles_cache = {}; _roles_cache_ts = 0
+    with _att_lock: _att_cache = {}  # пересчёт LC потребует новых ставок
+    log.info(f"[SETTINGS] role-rates сохранены: {len(cleaned)} overrides")
+    return {"ok": True, "saved": len(cleaned)}
+
 
 @app.post("/api/cache/clear")
 def clear_cache():

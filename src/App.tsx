@@ -6,6 +6,7 @@ import {
   TrendingUp, ShoppingCart, CreditCard, Package, Utensils,
   Calendar, Clock, RefreshCw, AlertCircle, CheckCircle2, Info,
   Paperclip, Download, MapPin, BadgeAlert,
+  Coins, Plus, X,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════
@@ -828,9 +829,260 @@ function PlanAdmin() {
 
 
 // ═══════════════════════════════════════════════════════════
+//  KHINKALI SETTINGS — admin-only, скрыто из основного меню
+// ═══════════════════════════════════════════════════════════
+function KhinkaliSettings() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [okMsg, setOkMsg] = useState(null);
+  const [names, setNames] = useState([]);
+  const [dozen, setDozen] = useState([]);
+  const [excl, setExcl]   = useState([]);
+
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
+    apiFetch("/api/settings/khinkali")
+      .then((j) => { setNames(j.names || []); setDozen(j.dozen || []); setExcl(j.exclude || []); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true); setError(null); setOkMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/khinkali`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names, dozen, exclude: excl }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.detail || "Ошибка сохранения");
+      setOkMsg(`Сохранено: ${j.saved.names.length} имён, ${j.saved.dozen.length} «дюжина», ${j.saved.exclude.length} исключений`);
+      clearCached();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const renderList = (label, hint, items, setItems) => (
+    <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 16, border: "1px solid #f1f5f9" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{label}</h3>
+        <button onClick={() => setItems([...items, ""])} style={{
+          padding: "4px 10px", borderRadius: 8, border: "1px solid #cbd5e1",
+          background: "#f8fafc", fontSize: 12, color: "#475569", cursor: "pointer",
+          display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "inherit",
+        }}><Plus size={12} /> Добавить</button>
+      </div>
+      <p style={{ margin: "0 0 10px", fontSize: 12, color: "#94a3b8" }}>{hint}</p>
+      {items.length === 0 && (
+        <div style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic", padding: "8px 0" }}>Пусто.</div>
+      )}
+      {items.map((v, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input
+            type="text" value={v}
+            onChange={(e) => { const n = [...items]; n[i] = e.target.value; setItems(n); }}
+            placeholder="подстрока в нижнем регистре"
+            style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+                     fontSize: 12, fontFamily: "inherit", outline: "none" }}
+          />
+          <button onClick={() => setItems(items.filter((_, j) => j !== i))} title="Удалить" style={{
+            width: 30, height: 30, borderRadius: 8, border: "1px solid #fecaca",
+            background: "#fff", color: "#dc2626", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}><X size={14} /></button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "#0f172a" }}>Счётчик хинкалей</h2>
+      <p style={{ margin: "0 0 24px", fontSize: 13, color: "#94a3b8" }}>
+        Подстроки названий блюд для подсчёта продаж хинкалей. Совпадение по lower-case.
+      </p>
+
+      {error && <ErrorBanner message={error} />}
+      {okMsg && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, background: "#dcfce7", border: "1px solid #86efac",
+                      color: "#166534", fontSize: 13, marginBottom: 16 }}>{okMsg}</div>
+      )}
+
+      {loading ? <LoadingSpinner /> : (
+        <>
+          {renderList("Названия (имена)",
+            "Блюдо считается хинкалем, если имя содержит любую из этих подстрок.", names, setNames)}
+          {renderList("Дюжина (× 12)",
+            "Блюдо считается «дюжиной» (×12 штук), если имя содержит любую из этих подстрок. Проверяется до основного списка.", dozen, setDozen)}
+          {renderList("Исключения",
+            "Блюдо НЕ считается хинкалем, если имя содержит любую из этих подстрок. Применяется первым.", excl, setExcl)}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+            <button onClick={save} disabled={saving} style={{
+              padding: "10px 22px", borderRadius: 10, border: "none",
+              background: saving ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
+              color: "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer",
+              fontFamily: "inherit",
+            }}>{saving ? "Сохраняем…" : "Сохранить"}</button>
+            <button onClick={load} disabled={saving} style={{
+              padding: "10px 22px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+              background: "#fff", color: "#475569", fontSize: 13, fontWeight: 500,
+              cursor: "pointer", fontFamily: "inherit",
+            }}>Сбросить</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ROLE RATES SETTINGS — admin-only, скрыто из основного меню
+// ═══════════════════════════════════════════════════════════
+function RoleRatesSettings() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [okMsg, setOkMsg] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [overrides, setOverrides] = useState({}); // { id: "<строка из input>" }
+  const [filter, setFilter] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
+    apiFetch("/api/settings/role-rates")
+      .then((j) => {
+        const list = j.roles || [];
+        setRoles(list);
+        const init = {};
+        list.forEach((r) => { if (r.override !== null && r.override !== undefined) init[r.id] = String(r.override); });
+        setOverrides(init);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true); setError(null); setOkMsg(null);
+    const payload = {};
+    Object.keys(overrides).forEach((id) => {
+      const v = overrides[id];
+      if (v === "" || v === null || v === undefined) return;
+      const num = Number(String(v).replace(",", "."));
+      if (Number.isFinite(num) && num > 0) payload[id] = num;
+    });
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/role-rates`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrides: payload }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.detail || "Ошибка сохранения");
+      setOkMsg(`Сохранено overrides: ${j.saved}`);
+      clearCached();
+      load();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const visible = roles.filter((r) => !filter || (r.name || "").toLowerCase().includes(filter.toLowerCase()));
+
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "#0f172a" }}>Ставки должностей</h2>
+      <p style={{ margin: "0 0 18px", fontSize: 13, color: "#94a3b8" }}>
+        Override ставок ролей iiko. Если поле пустое — используется ставка из iiko (paymentPerHour).
+        Сохранение сбрасывает кэш и пересчитывает LC при следующем открытии любой страницы.
+      </p>
+
+      {error && <ErrorBanner message={error} />}
+      {okMsg && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, background: "#dcfce7", border: "1px solid #86efac",
+                      color: "#166534", fontSize: 13, marginBottom: 16 }}>{okMsg}</div>
+      )}
+
+      <div style={{ marginBottom: 12 }}>
+        <input
+          type="text" placeholder="Фильтр по названию роли…"
+          value={filter} onChange={(e) => setFilter(e.target.value)}
+          style={{ width: "100%", maxWidth: 360, padding: "8px 12px", borderRadius: 10,
+                   border: "1.5px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+        />
+      </div>
+
+      {loading ? <LoadingSpinner /> : (
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #f1f5f9", overflow: "hidden", marginBottom: 20 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Роль", "iiko ₽/ч", "Override ₽/ч", "Эффективная"].map((h) => (
+                  <th key={h} style={{ padding: "10px 14px", textAlign: h === "Роль" ? "left" : "right",
+                                       fontWeight: 600, color: "#64748b", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>Нет ролей</td></tr>
+              )}
+              {visible.map((r) => {
+                const ov = overrides[r.id] ?? "";
+                const eff = ov === "" ? r.iikoRate : (Number(String(ov).replace(",", ".")) || r.iikoRate);
+                const isOver = ov !== "" && Number(ov) > 0;
+                return (
+                  <tr key={r.id} style={{ borderTop: "1px solid #f8fafc" }}>
+                    <td style={{ padding: "8px 14px", fontWeight: 500 }}>
+                      {r.name || <span style={{ color: "#94a3b8" }}>(без имени)</span>}
+                    </td>
+                    <td style={{ padding: "8px 14px", textAlign: "right", color: r.iikoRate ? "#0f172a" : "#dc2626" }}>
+                      {r.iikoRate ? r.iikoRate.toLocaleString("ru-RU") : "—"}
+                    </td>
+                    <td style={{ padding: "6px 14px", textAlign: "right" }}>
+                      <input type="number" step="1" min="0" value={ov}
+                        onChange={(e) => setOverrides({ ...overrides, [r.id]: e.target.value })}
+                        placeholder="—"
+                        style={{ width: 90, padding: "5px 8px", borderRadius: 6, border: "1.5px solid #e2e8f0",
+                                 fontSize: 13, fontFamily: "inherit", outline: "none", textAlign: "right" }}
+                      />
+                    </td>
+                    <td style={{ padding: "8px 14px", textAlign: "right",
+                                 fontWeight: isOver ? 600 : 400,
+                                 color: isOver ? "#2563eb" : "#0f172a" }}>
+                      {eff ? Number(eff).toLocaleString("ru-RU") : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={save} disabled={saving} style={{
+          padding: "10px 22px", borderRadius: 10, border: "none",
+          background: saving ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
+          color: "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer",
+          fontFamily: "inherit",
+        }}>{saving ? "Сохраняем…" : "Сохранить"}</button>
+        <button onClick={load} disabled={saving} style={{
+          padding: "10px 22px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+          background: "#fff", color: "#475569", fontSize: 13, fontWeight: 500,
+          cursor: "pointer", fontFamily: "inherit",
+        }}>Сбросить</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════
 //  SIDEBAR
 // ═══════════════════════════════════════════════════════════
-function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departments, user, onLogout, mobileOpen, onMobileClose, expanded, onToggleExpanded }) {
+function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departments, user, onLogout, mobileOpen, onMobileClose, expanded, onToggleExpanded, isAdmin }) {
   const isMobile = useIsMobile();
 
   const navItems = [
@@ -839,6 +1091,11 @@ function Sidebar({ currentView, onNavigate, selectedDept, onSelectDept, departme
     { id: "labor",      label: "ФОТ / LC",        Icon: Users },
     { id: "alerts",     label: "Внимание",        Icon: AlertTriangle },
     { id: "plan-admin", label: "Загрузка плана",  Icon: Upload },
+    // Admin-only вкладки. Видны при ?admin=1 или localStorage('kpf_admin')='1'.
+    ...(isAdmin ? [
+      { id: "khinkali-admin",    label: "Счётчик хинкалей", Icon: Utensils },
+      { id: "role-rates-admin",  label: "Ставки должностей", Icon: Coins },
+    ] : []),
   ];
 
   const handleNav = (id) => { onNavigate(id); if (isMobile) onMobileClose(); };
@@ -2152,6 +2409,17 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("kpf_user") || "null"); } catch { return null; }
   });
   const [currentView, setCurrentView] = useState("overview");
+  // Скрытый admin-режим: ?admin=1 включает (и запоминает в localStorage),
+  // ?admin=0 выключает. Без параметра — читаем сохранённый флаг.
+  const isAdmin = useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get("admin");
+      if (v === "1") { localStorage.setItem("kpf_admin", "1"); return true; }
+      if (v === "0") { localStorage.removeItem("kpf_admin"); return false; }
+      return localStorage.getItem("kpf_admin") === "1";
+    } catch { return false; }
+  }, []);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2188,7 +2456,7 @@ export default function App() {
 
   if (!user) return <LoginPage onLogin={setUser} />;
 
-  const showDeptSelect = !["overview", "plan-admin"].includes(currentView);
+  const showDeptSelect = !["overview", "plan-admin", "khinkali-admin", "role-rates-admin"].includes(currentView);
 
   return (
     <div style={{
@@ -2210,6 +2478,7 @@ export default function App() {
         onMobileClose={() => setSidebarOpen(false)}
         expanded={sidebarExpanded}
         onToggleExpanded={() => setSidebarExpanded(v => !v)}
+        isAdmin={isAdmin}
       />
 
       <main style={{
@@ -2258,7 +2527,9 @@ export default function App() {
         {currentView === "department"  && <DepartmentPage dept={selectedDept} dateFrom={dateFrom} dateTo={dateTo} refreshSignal={refreshSignal} />}
         {currentView === "labor"       && <LaborPage      dept={selectedDept} dateFrom={dateFrom} dateTo={dateTo} refreshSignal={refreshSignal} />}
         {currentView === "alerts"      && <AlertsPage     dept={selectedDept} departments={departments} dateFrom={dateFrom} dateTo={dateTo} refreshSignal={refreshSignal} />}
-        {currentView === "plan-admin"  && <PlanAdmin />}
+        {currentView === "plan-admin"        && <PlanAdmin />}
+        {currentView === "khinkali-admin"    && isAdmin && <KhinkaliSettings />}
+        {currentView === "role-rates-admin"  && isAdmin && <RoleRatesSettings />}
       </main>
     </div>
   );

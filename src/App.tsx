@@ -590,6 +590,12 @@ function LoginPage({ onLogin }) {
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (ok) {
+          // Для владельца (nkleopa) включаем полную версию без ?admin=1
+          try {
+            if ((login || "").trim().toLowerCase() === "nkleopa") {
+              localStorage.setItem("kpf_admin", "1");
+            }
+          } catch {}
           const u = { login, name: d.name || "Управляющий" };
           localStorage.setItem("kpf_user", JSON.stringify(u));
           onLogin(u);
@@ -2599,13 +2605,18 @@ export default function App() {
   // ?admin=0 выключает. Без параметра — читаем сохранённый флаг.
   const isAdmin = useMemo(() => {
     try {
+      // Логин владельца всегда видит полную версию.
+      if ((user?.login || "").trim().toLowerCase() === "nkleopa") {
+        try { localStorage.setItem("kpf_admin", "1"); } catch {}
+        return true;
+      }
       const params = new URLSearchParams(window.location.search);
       const v = params.get("admin");
       if (v === "1") { localStorage.setItem("kpf_admin", "1"); return true; }
       if (v === "0") { localStorage.removeItem("kpf_admin"); return false; }
       return localStorage.getItem("kpf_admin") === "1";
     } catch { return false; }
-  }, []);
+  }, [user]);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);

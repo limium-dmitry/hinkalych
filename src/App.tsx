@@ -829,69 +829,123 @@ function PlanAdmin() {
 
 
 // ═══════════════════════════════════════════════════════════
-//  KHINKALI SETTINGS — admin-only, скрыто из основного меню
+//  KHINKALI SETTINGS — exact whitelist через discover
+//  Сценарий: задаём период → «Найти» → чекбоксы блюд → «Сохранить».
 // ═══════════════════════════════════════════════════════════
 function KhinkaliSettings() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [okMsg, setOkMsg] = useState(null);
-  const [names, setNames] = useState([]);
-  const [dozen, setDozen] = useState([]);
-  const [excl, setExcl]   = useState([]);
+  const today = new Date();
+  const [dFrom, setDFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10);
+  });
+  const [dTo, setDTo] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
+  });
 
-  const load = useCallback(() => {
-    setLoading(true); setError(null);
+  const [cfgLoading, setCfgLoading]   = useState(true);
+  const [searching, setSearching]     = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [okMsg, setOkMsg]             = useState(null);
+
+  const [dishes, setDishes]           = useState([]);  // discover result
+  const [selected, setSelected]       = useState(new Set()); // имена в whitelist
+  const [filter, setFilter]           = useState("");
+
+  // Дополнительные подстрочные настройки (dozen / exclude) оставляем —
+  // «Дюжина» крайне сложно описать exact-режимом, она всегда подстрочная.
+  const [dozen, setDozen]             = useState([]);
+  const [excl, setExcl]               = useState([]);
+
+  // Загрузить текущую конфигурацию (whitelist + dozen + exclude).
+  const loadCfg = useCallback(() => {
+    setCfgLoading(true); setError(null);
     apiFetch("/api/settings/khinkali")
-      .then((j) => { setNames(j.names || []); setDozen(j.dozen || []); setExcl(j.exclude || []); })
+      .then((j) => {
+        setSelected(new Set((j.whitelist || []).map((s) => s)));
+        setDozen(j.dozen || []);
+        setExcl(j.exclude || []);
+      })
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => setCfgLoading(false));
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadCfg(); }, [loadCfg]);
 
+  // Найти блюда по подстроке «хинкал» в выбранном периоде.
+  const search = async () => {
+    setSearching(true); setError(null); setOkMsg(null);
+    try {
+      const j = await apiFetch(`/api/settings/khinkali/discover?date_from=${dFrom}&date_to=${dTo}`);
+      setDishes(j.dishes || []);
+      // авто-сопоставление: если блюдо уже в whitelist — оно отмечено
+      const sel = new Set(selected);
+      (j.dishes || []).forEach((d) => { if (d.inWhitelist) sel.add(d.name); });
+      setSelected(sel);
+    } catch (e) { setError(e.message); }
+    finally { setSearching(false); }
+  };
+
+  // Сохранить whitelist + dozen + exclude.
   const save = async () => {
     setSaving(true); setError(null); setOkMsg(null);
     try {
       const res = await fetch(`${API_BASE}/api/settings/khinkali`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names, dozen, exclude: excl }),
+        body: JSON.stringify({
+          whitelist: Array.from(selected),
+          dozen, exclude: excl,
+          mode: "whitelist",
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.detail || "Ошибка сохранения");
-      setOkMsg(`Сохранено: ${j.saved.names.length} имён, ${j.saved.dozen.length} «дюжина», ${j.saved.exclude.length} исключений`);
+      setOkMsg(`Сохранено: ${j.saved.whitelist.length} блюд в whitelist, ${j.saved.dozen.length} «дюжина», ${j.saved.exclude.length} исключений`);
       clearCached();
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
 
-  const renderList = (label, hint, items, setItems) => (
-    <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 16, border: "1px solid #f1f5f9" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{label}</h3>
+  const toggle = (name) => {
+    const s = new Set(selected);
+    if (s.has(name)) s.delete(name); else s.add(name);
+    setSelected(s);
+  };
+
+  // Чекать всё / снять всё / только видимые после фильтра.
+  const visible = dishes.filter((d) => !filter || d.name.toLowerCase().includes(filter.toLowerCase()));
+  const allVisibleChecked = visible.length > 0 && visible.every((d) => selected.has(d.name));
+  const toggleAllVisible = () => {
+    const s = new Set(selected);
+    if (allVisibleChecked) visible.forEach((d) => s.delete(d.name));
+    else                   visible.forEach((d) => s.add(d.name));
+    setSelected(s);
+  };
+
+  // Подстрочные списки для dozen/excl (повторяем компактный редактор).
+  const renderSubList = (label, hint, items, setItems) => (
+    <div style={{ background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 12, border: "1px solid #f1f5f9" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{label}</h4>
         <button onClick={() => setItems([...items, ""])} style={{
-          padding: "4px 10px", borderRadius: 8, border: "1px solid #cbd5e1",
-          background: "#f8fafc", fontSize: 12, color: "#475569", cursor: "pointer",
+          padding: "3px 8px", borderRadius: 6, border: "1px solid #cbd5e1",
+          background: "#f8fafc", fontSize: 11, color: "#475569", cursor: "pointer",
           display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "inherit",
-        }}><Plus size={12} /> Добавить</button>
+        }}><Plus size={11} /> Добавить</button>
       </div>
-      <p style={{ margin: "0 0 10px", fontSize: 12, color: "#94a3b8" }}>{hint}</p>
-      {items.length === 0 && (
-        <div style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic", padding: "8px 0" }}>Пусто.</div>
-      )}
+      <p style={{ margin: "4px 0 8px", fontSize: 11, color: "#94a3b8" }}>{hint}</p>
+      {items.length === 0 && <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>Пусто.</div>}
       {items.map((v, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input
-            type="text" value={v}
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+          <input type="text" value={v}
             onChange={(e) => { const n = [...items]; n[i] = e.target.value; setItems(n); }}
-            placeholder="подстрока в нижнем регистре"
-            style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+            placeholder="подстрока"
+            style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1.5px solid #e2e8f0",
                      fontSize: 12, fontFamily: "inherit", outline: "none" }}
           />
           <button onClick={() => setItems(items.filter((_, j) => j !== i))} title="Удалить" style={{
-            width: 30, height: 30, borderRadius: 8, border: "1px solid #fecaca",
+            width: 26, height: 26, borderRadius: 6, border: "1px solid #fecaca",
             background: "#fff", color: "#dc2626", cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}><X size={14} /></button>
+          }}><X size={12} /></button>
         </div>
       ))}
     </div>
@@ -900,8 +954,9 @@ function KhinkaliSettings() {
   return (
     <div>
       <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "#0f172a" }}>Счётчик хинкалей</h2>
-      <p style={{ margin: "0 0 24px", fontSize: 13, color: "#94a3b8" }}>
-        Подстроки названий блюд для подсчёта продаж хинкалей. Совпадение по lower-case.
+      <p style={{ margin: "0 0 18px", fontSize: 13, color: "#94a3b8" }}>
+        Точный whitelist блюд. Жми «Найти» — подгрузим все блюда из iiko с «хинкал» в имени за период,
+        чекни нужные → сохрани.
       </p>
 
       {error && <ErrorBanner message={error} />}
@@ -910,49 +965,150 @@ function KhinkaliSettings() {
                       color: "#166534", fontSize: 13, marginBottom: 16 }}>{okMsg}</div>
       )}
 
-      {loading ? <LoadingSpinner /> : (
-        <>
-          {renderList("Названия (имена)",
-            "Блюдо считается хинкалем, если имя содержит любую из этих подстрок.", names, setNames)}
-          {renderList("Дюжина (× 12)",
-            "Блюдо считается «дюжиной» (×12 штук), если имя содержит любую из этих подстрок. Проверяется до основного списка.", dozen, setDozen)}
-          {renderList("Исключения",
-            "Блюдо НЕ считается хинкалем, если имя содержит любую из этих подстрок. Применяется первым.", excl, setExcl)}
+      <div style={{ background: "#f0f9ff", borderRadius: 12, padding: "14px 18px", marginBottom: 16,
+                    border: "1px solid #bfdbfe", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <input type="date" value={dFrom} onChange={(e) => setDFrom(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid #93c5fd",
+                   fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+        <span style={{ color: "#93c5fd" }}>→</span>
+        <input type="date" value={dTo} onChange={(e) => setDTo(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid #93c5fd",
+                   fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+        <button onClick={search} disabled={searching || cfgLoading} style={{
+          padding: "8px 18px", borderRadius: 8, border: "none",
+          background: searching ? "#94a3b8" : "linear-gradient(135deg, #2563eb, #1d4ed8)",
+          color: "#fff", fontSize: 12, fontWeight: 600,
+          cursor: (searching || cfgLoading) ? "default" : "pointer", fontFamily: "inherit",
+        }}>{searching ? "Ищем…" : "Найти хинкали"}</button>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#1e40af" }}>
+          В whitelist: <b>{selected.size}</b>{dishes.length ? ` · найдено: ${dishes.length}` : ""}
+        </span>
+      </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-            <button onClick={save} disabled={saving} style={{
-              padding: "10px 22px", borderRadius: 10, border: "none",
-              background: saving ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
-              color: "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer",
-              fontFamily: "inherit",
-            }}>{saving ? "Сохраняем…" : "Сохранить"}</button>
-            <button onClick={load} disabled={saving} style={{
-              padding: "10px 22px", borderRadius: 10, border: "1.5px solid #e2e8f0",
-              background: "#fff", color: "#475569", fontSize: 13, fontWeight: 500,
-              cursor: "pointer", fontFamily: "inherit",
-            }}>Сбросить</button>
+      {dishes.length > 0 && (
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #f1f5f9", overflow: "hidden", marginBottom: 16 }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid #f1f5f9",
+                        display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="text" placeholder="Фильтр по названию…"
+              value={filter} onChange={(e) => setFilter(e.target.value)}
+              style={{ flex: 1, minWidth: 180, padding: "6px 10px", borderRadius: 8,
+                       border: "1.5px solid #e2e8f0", fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+            <button onClick={toggleAllVisible} style={{
+              padding: "6px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0",
+              background: "#fff", color: "#475569", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+            }}>{allVisibleChecked ? "Снять видимые" : "Чекнуть видимые"}</button>
           </div>
-        </>
+          <div style={{ maxHeight: 460, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+                  {["✓", "Блюдо", "Шт", "Точки"].map((h, i) => (
+                    <th key={h} style={{ padding: "8px 12px",
+                                         textAlign: i === 0 ? "center" : (i >= 2 ? "right" : "left"),
+                                         fontWeight: 600, color: "#64748b", fontSize: 11,
+                                         textTransform: "uppercase" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((d) => {
+                  const isSel = selected.has(d.name);
+                  return (
+                    <tr key={d.name} onClick={() => toggle(d.name)}
+                        style={{ borderTop: "1px solid #f8fafc", cursor: "pointer",
+                                 background: isSel ? "#eff6ff" : (d.excluded ? "#fef2f2" : "transparent") }}>
+                      <td style={{ padding: "6px 12px", textAlign: "center" }}>
+                        <input type="checkbox" checked={isSel} onChange={() => toggle(d.name)}
+                          onClick={(e) => e.stopPropagation()} />
+                      </td>
+                      <td style={{ padding: "6px 12px", fontWeight: 500 }}>
+                        {d.name}
+                        {d.isDozen && (
+                          <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 6px",
+                                         borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>×12</span>
+                        )}
+                        {d.excluded && (
+                          <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 6px",
+                                         borderRadius: 4, background: "#fee2e2", color: "#991b1b" }}>исключено</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "6px 12px", textAlign: "right", color: "#64748b" }}>
+                        {d.qty.toLocaleString("ru-RU")}
+                      </td>
+                      <td style={{ padding: "6px 12px", textAlign: "right", color: "#94a3b8", fontSize: 11 }}>
+                        {d.depts.length}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
+
+      {/* Дюжина и исключения остаются подстрочными — это правила, а не конкретные блюда */}
+      <details style={{ marginBottom: 16 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, color: "#475569", padding: "8px 0" }}>
+          Доп. правила: дюжина (×12) и исключения
+        </summary>
+        <div style={{ marginTop: 8 }}>
+          {renderSubList("Дюжина (× 12)",
+            "Блюдо считается «дюжиной» (×12), если имя содержит подстроку. Проверяется ДО whitelist.",
+            dozen, setDozen)}
+          {renderSubList("Исключения",
+            "Блюдо НЕ считается хинкалем, если имя содержит подстроку. Проверяется первым.",
+            excl, setExcl)}
+        </div>
+      </details>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={save} disabled={saving || cfgLoading} style={{
+          padding: "10px 22px", borderRadius: 10, border: "none",
+          background: saving ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
+          color: "#fff", fontSize: 13, fontWeight: 600, cursor: (saving || cfgLoading) ? "default" : "pointer",
+          fontFamily: "inherit",
+        }}>{saving ? "Сохраняем…" : `Сохранить (${selected.size} блюд)`}</button>
+        <button onClick={loadCfg} disabled={saving} style={{
+          padding: "10px 22px", borderRadius: 10, border: "1.5px solid #e2e8f0",
+          background: "#fff", color: "#475569", fontSize: 13, fontWeight: 500,
+          cursor: "pointer", fontFamily: "inherit",
+        }}>Сбросить</button>
+      </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ROLE RATES SETTINGS — admin-only, скрыто из основного меню
+//  ROLE RATES SETTINGS — per-(ТП, роль). Управляющие будут видеть
+//  только своё ТП, поэтому override живёт на уровне (Department, roleId).
 // ═══════════════════════════════════════════════════════════
-function RoleRatesSettings() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [okMsg, setOkMsg] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [overrides, setOverrides] = useState({}); // { id: "<строка из input>" }
-  const [filter, setFilter] = useState("");
+function RoleRatesSettings({ departments }) {
+  const [dept, setDept] = useState("");
+  const [dFrom, setDFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10);
+  });
+  const [dTo, setDTo] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
+  });
+
+  const [loading, setLoading]   = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState(null);
+  const [okMsg, setOkMsg]       = useState(null);
+  const [roles, setRoles]       = useState([]);
+  const [overrides, setOverrides] = useState({}); // { roleId: "<строка>" }
+  const [filter, setFilter]     = useState("");
+
+  // Авто-выбор первого ТП при монтировании
+  useEffect(() => {
+    if (!dept && departments && departments.length) setDept(departments[0]);
+  }, [departments, dept]);
 
   const load = useCallback(() => {
-    setLoading(true); setError(null);
-    apiFetch("/api/settings/role-rates")
+    if (!dept) return;
+    setLoading(true); setError(null); setOkMsg(null);
+    apiFetch(`/api/settings/role-rates?dept=${encodeURIComponent(dept)}&date_from=${dFrom}&date_to=${dTo}`)
       .then((j) => {
         const list = j.roles || [];
         setRoles(list);
@@ -962,10 +1118,11 @@ function RoleRatesSettings() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [dept, dFrom, dTo]);
   useEffect(() => { load(); }, [load]);
 
   const save = async () => {
+    if (!dept) return;
     setSaving(true); setError(null); setOkMsg(null);
     const payload = {};
     Object.keys(overrides).forEach((id) => {
@@ -977,11 +1134,11 @@ function RoleRatesSettings() {
     try {
       const res = await fetch(`${API_BASE}/api/settings/role-rates`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ overrides: payload }),
+        body: JSON.stringify({ dept, overrides: payload }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.detail || "Ошибка сохранения");
-      setOkMsg(`Сохранено overrides: ${j.saved}`);
+      setOkMsg(`Сохранено для «${j.dept}»: ${j.saved} overrides`);
       clearCached();
       load();
     } catch (e) { setError(e.message); }
@@ -994,8 +1151,8 @@ function RoleRatesSettings() {
     <div>
       <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "#0f172a" }}>Ставки должностей</h2>
       <p style={{ margin: "0 0 18px", fontSize: 13, color: "#94a3b8" }}>
-        Override ставок ролей iiko. Если поле пустое — используется ставка из iiko (paymentPerHour).
-        Сохранение сбрасывает кэш и пересчитывает LC при следующем открытии любой страницы.
+        Override ставок ролей в выбранном ТП. Если override пустой — берётся ставка из iiko (paymentPerHour).
+        Сохранение сразу пересчитает LC. Показаны только роли, чьи смены реально были в этом ТП за период.
       </p>
 
       {error && <ErrorBanner message={error} />}
@@ -1003,6 +1160,33 @@ function RoleRatesSettings() {
         <div style={{ padding: "10px 14px", borderRadius: 10, background: "#dcfce7", border: "1px solid #86efac",
                       color: "#166534", fontSize: 13, marginBottom: 16 }}>{okMsg}</div>
       )}
+
+      {/* Селектор ТП + период */}
+      <div style={{ background: "#f0f9ff", borderRadius: 12, padding: "14px 18px", marginBottom: 16,
+                    border: "1px solid #bfdbfe", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "#1e40af", fontWeight: 600 }}>ТП:</span>
+        <select value={dept} onChange={(e) => setDept(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid #93c5fd",
+                   fontSize: 12, fontFamily: "inherit", outline: "none", background: "#fff",
+                   minWidth: 240 }}>
+          {!departments?.length && <option value="">Загрузка…</option>}
+          {(departments || []).map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: "#1e40af", fontWeight: 600, marginLeft: 12 }}>Период:</span>
+        <input type="date" value={dFrom} onChange={(e) => setDFrom(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid #93c5fd",
+                   fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+        <span style={{ color: "#93c5fd" }}>→</span>
+        <input type="date" value={dTo} onChange={(e) => setDTo(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid #93c5fd",
+                   fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+        <button onClick={load} disabled={loading || !dept} style={{
+          padding: "7px 14px", borderRadius: 8, border: "none",
+          background: loading ? "#94a3b8" : "linear-gradient(135deg, #2563eb, #1d4ed8)",
+          color: "#fff", fontSize: 12, fontWeight: 600,
+          cursor: (loading || !dept) ? "default" : "pointer", fontFamily: "inherit",
+        }}>{loading ? "…" : "Загрузить"}</button>
+      </div>
 
       <div style={{ marginBottom: 12 }}>
         <input
@@ -1026,7 +1210,9 @@ function RoleRatesSettings() {
             </thead>
             <tbody>
               {visible.length === 0 && (
-                <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>Нет ролей</td></tr>
+                <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>
+                  {dept ? "За указанный период в этом ТП не было смен" : "Сначала выберите ТП"}
+                </td></tr>
               )}
               {visible.map((r) => {
                 const ov = overrides[r.id] ?? "";
@@ -1062,16 +1248,16 @@ function RoleRatesSettings() {
       )}
 
       <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={save} disabled={saving} style={{
+        <button onClick={save} disabled={saving || !dept} style={{
           padding: "10px 22px", borderRadius: 10, border: "none",
-          background: saving ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
-          color: "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer",
+          background: (saving || !dept) ? "#94a3b8" : "linear-gradient(135deg, #1e293b, #334155)",
+          color: "#fff", fontSize: 13, fontWeight: 600, cursor: (saving || !dept) ? "default" : "pointer",
           fontFamily: "inherit",
         }}>{saving ? "Сохраняем…" : "Сохранить"}</button>
-        <button onClick={load} disabled={saving} style={{
+        <button onClick={load} disabled={saving || !dept} style={{
           padding: "10px 22px", borderRadius: 10, border: "1.5px solid #e2e8f0",
           background: "#fff", color: "#475569", fontSize: 13, fontWeight: 500,
-          cursor: "pointer", fontFamily: "inherit",
+          cursor: (saving || !dept) ? "default" : "pointer", fontFamily: "inherit",
         }}>Сбросить</button>
       </div>
     </div>
@@ -2529,7 +2715,7 @@ export default function App() {
         {currentView === "alerts"      && <AlertsPage     dept={selectedDept} departments={departments} dateFrom={dateFrom} dateTo={dateTo} refreshSignal={refreshSignal} />}
         {currentView === "plan-admin"        && <PlanAdmin />}
         {currentView === "khinkali-admin"    && isAdmin && <KhinkaliSettings />}
-        {currentView === "role-rates-admin"  && isAdmin && <RoleRatesSettings />}
+        {currentView === "role-rates-admin"  && isAdmin && <RoleRatesSettings departments={departments} />}
       </main>
     </div>
   );

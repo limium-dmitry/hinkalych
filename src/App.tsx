@@ -2600,7 +2600,9 @@ export default function App() {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem("kpf_user") || "null"); } catch { return null; }
   });
-  const [currentView, setCurrentView] = useState("overview");
+  const [currentView, setCurrentView] = useState(() => {
+    try { return localStorage.getItem("kpf_view") || "overview"; } catch { return "overview"; }
+  });
   // Скрытый admin-режим: ?admin=1 включает (и запоминает в localStorage),
   // ?admin=0 выключает. Без параметра — читаем сохранённый флаг.
   const isAdmin = useMemo(() => {
@@ -2628,6 +2630,19 @@ export default function App() {
   const [dateTo, setDateTo] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
   });
+
+  // Запоминаем вкладку (view) между перезагрузками
+  useEffect(() => {
+    try { localStorage.setItem("kpf_view", currentView); } catch {}
+  }, [currentView]);
+
+  // Если сохранена админ-вкладка, но админ-доступа нет — возвращаемся на сводку
+  useEffect(() => {
+    const adminOnlyViews = new Set(["khinkali-admin", "role-rates-admin"]);
+    if (!isAdmin && adminOnlyViews.has(currentView)) {
+      setCurrentView("overview");
+    }
+  }, [isAdmin, currentView]);
 
   // Загрузка списка ресторанов
   useEffect(() => {
@@ -2670,7 +2685,11 @@ export default function App() {
         onSelectDept={setSelectedDept}
         departments={departments}
         user={user}
-        onLogout={() => { localStorage.removeItem("kpf_user"); setUser(null); }}
+        onLogout={() => {
+          localStorage.removeItem("kpf_user");
+          try { localStorage.removeItem("kpf_view"); } catch {}
+          setUser(null);
+        }}
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
         expanded={sidebarExpanded}
